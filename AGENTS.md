@@ -8,7 +8,7 @@ No remote is authorized by default. Before any remote write, ask the user to con
 
 ## Product scope
 
-The product acceptance source is `docs/superpowers/plans/2026-10-26-lfys-product-requirements.md`; the architecture decision is `docs/superpowers/plans/2026-10-26-lfys-architecture.md`; implementation order is `docs/superpowers/plans/2026-10-26-lfys-repository-setup.md`. Load `.agents/skills/personal-learning/SKILL.md` whenever a task changes consent, learning sessions, source verification, privacy, sharing, forking, or MCP access to learning data.
+The product acceptance source is `docs/superpowers/plans/2026-10-26-lfys-product-requirements.md`; the architecture decision is `docs/superpowers/plans/2026-10-26-lfys-architecture.md`; implementation order is `docs/superpowers/plans/2026-10-26-lfys-repository-setup.md`.
 
 Historical source checklists belonged to a different repository and have been consolidated into the requirements plan. In LFYs every implementation checkpoint starts pending; mark it complete only with evidence produced from this repo.
 
