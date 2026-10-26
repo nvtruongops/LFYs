@@ -1,0 +1,37 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-lfys}
+      POSTGRES_USER: ${POSTGRES_USER:-lfys}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-lfys_dev_only}
+    ports:
+      - '127.0.0.1:5432:5432'
+    volumes:
+      - lfys-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-lfys} -d ${POSTGRES_DB:-lfys}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    environment:
+      NODE_ENV: production
+      PORT: 5173
+      ORIGIN: ${APP_ORIGIN:-http://localhost:5173}
+      APP_ORIGIN: ${APP_ORIGIN:-http://localhost:5173}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-lfys}:${POSTGRES_PASSWORD:-lfys_dev_only}@postgres:5432/${POSTGRES_DB:-lfys}
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:5173}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Set BETTER_AUTH_SECRET in .env}
+      AI_PROVIDER_API_KEY: ${AI_PROVIDER_API_KEY:-}
+      SOURCE_SEARCH_API_KEY: ${SOURCE_SEARCH_API_KEY:-}
+    ports:
+      - '127.0.0.1:5173:5173'
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  lfys-postgres:

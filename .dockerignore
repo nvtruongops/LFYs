@@ -1,0 +1,11 @@
+.git
+.superpowers
+.svelte-kit
+node_modules
+build
+.env
+.env.*
+!.env.example
+docs
+tests
+*.log
