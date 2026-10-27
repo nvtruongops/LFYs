@@ -8,6 +8,27 @@
       "when": 1793024417582,
       "tag": "0000_auth",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1793031843611,
+      "tag": "0001_worried_the_initiative",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793034601898,
+      "tag": "0002_bent_juggernaut",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1793085763976,
+      "tag": "0003_loud_lila_cheney",
+      "breakpoints": true
     }
   ]
 }

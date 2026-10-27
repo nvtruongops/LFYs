@@ -1,5 +1,6 @@
 # Private project documentation (kept local; do not publish)
 /docs/
+/.superpowers/
 
 # Dependencies and package-manager state
 node_modules/
