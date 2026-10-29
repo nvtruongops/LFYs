@@ -3,8 +3,9 @@ import { eq } from 'drizzle-orm';
 import { PgBoss } from 'pg-boss';
 import { db } from '../../src/lib/server/db';
 import { user } from '../../src/lib/server/db/schema/auth';
-import { learningConversation, learningJourney, learningSession } from '../../src/lib/server/db/schema/personal-learning';
+import { learningChatTurn, learningConversation, learningJourney, learningSession } from '../../src/lib/server/db/schema/personal-learning';
 import { processLearningSession } from '../../src/lib/server/personal-learning/generation';
+import { continueJourney, getLearningStatus } from '../../src/lib/server/personal-learning';
 
 const owners: string[] = [];
 const originalFetch = globalThis.fetch;
@@ -33,6 +34,44 @@ afterEach(async () => {
 });
 
 describe('learning session generation worker', () => {
+	it('uses only the previous session chat question as untrusted focus for explicit continuation', async () => {
+		const { journeyId, sessionId } = await createSession();
+		await db.update(learningSession).set({
+			status: 'ready', title: 'Photosynthesis', lesson: 'Plants convert light into chemical energy.',
+			activityMinutes: 20, sourceManifest: [{ id: 'source-1', url: 'https://example.org/plants', name: 'Plant guide', retrievedAt: new Date().toISOString(), relationship: 'Core explanation' }]
+		}).where(eq(learningSession.id, sessionId));
+		await db.update(learningJourney).set({ status: 'ready' }).where(eq(learningJourney.id, journeyId));
+		await db.insert(learningChatTurn).values({ sessionId, question: 'How does chlorophyll capture light?', answer: 'It absorbs light.' });
+		expect(await getLearningStatus(owners[owners.length - 1])).toMatchObject([{ nextFocus: 'Understand photosynthesis' }]);
+		const next = await continueJourney({ ownerId: owners[owners.length - 1], journeyId });
+		expect(next).toMatchObject({ status: 'created', sessionIndex: 2 });
+		let generationBody: Record<string, unknown> = {};
+		const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+			if (String(input) === 'https://s.jina.ai/search') {
+				return new Response(JSON.stringify({ data: [{ title: 'Official plant guide', url: 'https://example.org/plants', content: 'Chlorophyll absorbs light.' }] }), { headers: { 'content-type': 'application/json' } });
+			}
+			generationBody = JSON.parse(String(init?.body));
+			return new Response(JSON.stringify({
+				id: 'lesson', object: 'chat.completion', created: 1, model: 'local-model',
+				choices: [{ index: 0, message: { role: 'assistant', content: JSON.stringify({ title: 'Capturing light', lesson: 'Chlorophyll absorbs light. [source-1]', activityMinutes: 20, citations: [{ sourceId: 'source-1', relationship: 'Supports the explanation' }] }) }, finish_reason: 'stop' }],
+				usage: { prompt_tokens: 1, completion_tokens: 10, total_tokens: 11 }
+			}), { headers: { 'content-type': 'application/json' } });
+		});
+		vi.stubGlobal('fetch', fetchMock);
+
+		await processLearningSession(next.sessionId, 0);
+
+		expect(JSON.stringify(generationBody.messages)).toContain('How does chlorophyll capture light?');
+		expect(JSON.stringify(generationBody.messages)).toContain('untrusted');
+		const sessions = await db.select().from(learningSession).where(eq(learningSession.journeyId, journeyId));
+		expect(sessions).toHaveLength(2);
+		expect(sessions[1]).toMatchObject({ sessionIndex: 2, status: 'ready' });
+		expect(await getLearningStatus(owners[owners.length - 1])).toMatchObject([
+			{},
+			{ sessionIndex: 2, nextFocus: 'How does chlorophyll capture light?' }
+		]);
+	});
+
 	it('limits same-journey jobs and persisted quota across separate pg-boss instances', async () => {
 		const { journeyId } = await createSession();
 		const queue = 'learning-session-concurrency-test';

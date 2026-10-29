@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { eq, inArray } from 'drizzle-orm';
 import { db } from '../../src/lib/server/db';
 import { user } from '../../src/lib/server/db/schema/auth';
-import { learningForkLineage, learningJourney, learningSession, learningShare } from '../../src/lib/server/db/schema/personal-learning';
+import { learningChatTurn, learningForkLineage, learningJourney, learningSession, learningShare } from '../../src/lib/server/db/schema/personal-learning';
 import { stopLearningQueue } from '../../src/lib/server/jobs';
 import { acceptOffer, continueJourney, createAnsweredConversation, offerLearning } from '../../src/lib/server/personal-learning';
 import { createShare, forkShare, readSharedSnapshot, revokeShare } from '../../src/lib/server/personal-learning/sharing';
@@ -53,6 +53,11 @@ describe('learning snapshots and forks', () => {
         relationship: 'Defines the core battery terms'
       }]
     }).where(eq(learningSession.id, accepted.sessionId));
+    await db.insert(learningChatTurn).values({
+      sessionId: accepted.sessionId,
+      question: 'Private follow-up about the lesson',
+      answer: 'Private assistant response'
+    });
 
     const shared = await createShare({ ownerId, journeyId: accepted.journeyId, expiresAt: new Date(Date.now() + 60_000) });
     const snapshot = await readSharedSnapshot(shared.token);
@@ -60,6 +65,8 @@ describe('learning snapshots and forks', () => {
     expect(snapshot!.sessions[0]).toMatchObject({ index: 1, title: 'Battery basics', lesson: 'Public lesson text' });
     expect(snapshot!.sessions[0].sources).toMatchObject([{ id: 'source-1', url: 'https://example.org/batteries' }]);
     expect(JSON.stringify(snapshot)).not.toContain('Private question');
+    expect(JSON.stringify(snapshot)).not.toContain('Private follow-up about the lesson');
+    expect(JSON.stringify(snapshot)).not.toContain('Private assistant response');
 
     const warning = await forkShare({
       ownerId: viewerId,

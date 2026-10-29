@@ -1,12 +1,15 @@
-import { and, desc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray } from 'drizzle-orm';
+import { answerLessonChat } from '../ai/lesson-chat';
 import { db } from '../db';
-import { learningConversation, learningJobOutbox, learningJourney, learningSession } from '../db/schema';
+import { learningChatTurn, learningConversation, learningJobOutbox, learningJourney, learningSession } from '../db/schema';
 import { enqueueLearningSession, retryFailedLearningJob } from '../jobs';
-import { canContinue, isValidExtension } from './cadence';
+import { canContinue, isReviewBoundary, isValidExtension } from './cadence';
 import { validateLearningSourceUrl } from './sources/jina';
 
 const studyDayPresets = [1, 7, 30];
 const dailyMinutePresets = [30, 60, 120];
+
+export class LessonChatUnavailableError extends Error {}
 
 export async function createAnsweredConversation(input: {
   ownerId: string;
@@ -170,9 +173,10 @@ export async function extendJourney(input: { ownerId: string; journeyId: string;
 }
 
 export async function getLearningStatus(ownerId: string) {
-  return db.select({
+  const sessions = await db.select({
     journeyId: learningJourney.id,
     goal: learningJourney.goal,
+    studyDays: learningJourney.studyDays,
     journeyStatus: learningJourney.status,
     sessionId: learningSession.id,
     sessionIndex: learningSession.sessionIndex,
@@ -186,6 +190,60 @@ export async function getLearningStatus(ownerId: string) {
     .innerJoin(learningSession, eq(learningSession.journeyId, learningJourney.id))
     .where(eq(learningJourney.ownerUserId, ownerId))
     .orderBy(desc(learningJourney.createdAt), learningSession.sessionIndex);
+
+  if (sessions.length === 0) return [];
+  const turns = await db.select().from(learningChatTurn)
+    .where(inArray(learningChatTurn.sessionId, sessions.map((session) => session.sessionId)))
+    .orderBy(asc(learningChatTurn.createdAt), asc(learningChatTurn.id));
+  const latestIndex = new Map<string, number>();
+  for (const session of sessions) latestIndex.set(session.journeyId, Math.max(latestIndex.get(session.journeyId) ?? 0, session.sessionIndex));
+  return sessions.map((session) => {
+    const priorSession = sessions.find((candidate) => candidate.journeyId === session.journeyId && candidate.sessionIndex === session.sessionIndex - 1);
+    const priorQuestions = turns.filter((turn) => turn.sessionId === priorSession?.sessionId);
+    return {
+      ...session,
+      isLatestSession: session.sessionIndex === latestIndex.get(session.journeyId),
+      isReviewBoundary: isReviewBoundary(session.studyDays, session.sessionIndex),
+      canContinue: canContinue(session.sessionIndex, session.studyDays),
+      extensionTargets: [7, 30].filter((target) => isValidExtension(session.studyDays, target)),
+      nextFocus: priorQuestions.at(-1)?.question ?? session.goal,
+      chatTurns: turns.filter((turn) => turn.sessionId === session.sessionId)
+    };
+  });
+}
+
+export async function replyToLessonChat(input: { ownerId: string; sessionId: string; question: string }) {
+  const [session] = await db.select({
+    sessionId: learningSession.id,
+    status: learningSession.status,
+    title: learningSession.title,
+    lesson: learningSession.lesson,
+    language: learningConversation.language
+  }).from(learningSession)
+    .innerJoin(learningJourney, eq(learningSession.journeyId, learningJourney.id))
+    .leftJoin(learningConversation, eq(learningJourney.conversationId, learningConversation.id))
+    .where(and(eq(learningSession.id, input.sessionId), eq(learningJourney.ownerUserId, input.ownerId)));
+  if (!session || session.status !== 'ready' || !session.title || !session.lesson) {
+    throw new LessonChatUnavailableError('Lesson not found, not owned, or unavailable');
+  }
+
+  const recentTurns = await db.select({ question: learningChatTurn.question, answer: learningChatTurn.answer })
+    .from(learningChatTurn)
+    .where(eq(learningChatTurn.sessionId, session.sessionId))
+    .orderBy(desc(learningChatTurn.createdAt), desc(learningChatTurn.id))
+    .limit(10);
+  const answer = await answerLessonChat({
+    title: session.title,
+    lesson: session.lesson,
+    language: session.language ?? 'English',
+    question: input.question,
+    history: recentTurns.reverse().flatMap((turn) => [
+      { role: 'user' as const, content: turn.question },
+      { role: 'assistant' as const, content: turn.answer }
+    ])
+  });
+  await db.insert(learningChatTurn).values({ sessionId: session.sessionId, question: input.question, answer });
+  return answer;
 }
 
 export async function retryLearningSession(input: { ownerId: string; sessionId: string; sourceUrl?: string }) {

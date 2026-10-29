@@ -85,6 +85,15 @@
   {#if form?.retried}
     <p role="status">Session 1 has been queued for another attempt.</p>
   {/if}
+  {#if form?.continued}
+    <p role="status">Session {form.sessionIndex} has been queued.</p>
+  {/if}
+  {#if form?.goalReached}
+    <p role="status">This journey has reached its current target.</p>
+  {/if}
+  {#if form?.extended}
+    <p role="status">Journey target extended to {form.studyDays} sessions.</p>
+  {/if}
   {#if form?.dismissed}
     <p role="status">No journey was created.</p>
   {/if}
@@ -93,6 +102,34 @@
     <section aria-label={`Learning journey: ${journey.goal}`}>
       <h2>{journey.goal}</h2>
       <p role="status">Session {journey.sessionIndex} status: {journey.sessionStatus}</p>
+      {#if journey.sessionIndex > 1}
+        <p>Next focus: {journey.nextFocus}</p>
+      {/if}
+      {#if journey.isLatestSession && journey.sessionStatus === 'ready'}
+        {#if journey.isReviewBoundary}
+          <p>Review this session before continuing, if you wish.</p>
+        {/if}
+        {#if journey.canContinue}
+          <form method="POST" action="?/continue">
+            <input type="hidden" name="journeyId" value={journey.journeyId} />
+            <button type="submit">Continue to next session</button>
+          </form>
+        {/if}
+        {#if journey.extensionTargets.length > 0}
+          <form method="POST" action="?/extend">
+            <input type="hidden" name="journeyId" value={journey.journeyId} />
+            <label>
+              Extend to
+              <select name="newTarget">
+                {#each journey.extensionTargets as target}
+                  <option value={target}>{target} sessions</option>
+                {/each}
+              </select>
+            </label>
+            <button type="submit">Extend journey</button>
+          </form>
+        {/if}
+      {/if}
       {#if journey.sessionStatus === 'ready'}
         <article>
           <h3>{journey.title}</h3>
@@ -105,6 +142,23 @@
             {/each}
           </ul>
           <p><strong>AI-generated lesson; source links are provided, but claims have not been independently fact-checked.</strong></p>
+          <section aria-label="Lesson chat">
+            <h4>Ask about this lesson</h4>
+            {#each journey.chatTurns as turn (turn.id)}
+              <div>
+                <p><strong>You:</strong> {turn.question}</p>
+                <p><strong>Assistant:</strong> {turn.answer}</p>
+              </div>
+            {/each}
+            <form method="POST" action="?/chat">
+              <input type="hidden" name="sessionId" value={journey.sessionId} />
+              <label>
+                Your question about this lesson
+                <textarea name="question" maxlength="2000" required></textarea>
+              </label>
+              <button type="submit">Ask about lesson</button>
+            </form>
+          </section>
         </article>
       {:else if journey.sessionStatus === 'failed' && journey.sessionIndex === 1}
         <p role="alert">We could not generate this lesson from available sources. You can retry or provide a public source URL.</p>

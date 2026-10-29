@@ -21,7 +21,7 @@ describe('citation-bound learning lesson', () => {
 			return response(validDraft);
 		});
 
-		const lesson = await generateSessionLesson({ goal: 'Understand photosynthesis', question: 'Why are leaves green?', priorKnowledge: 'I know plants need light.', language: 'English', dailyMinutes: 30, sources }, config, fetchImpl);
+		const lesson = await generateSessionLesson({ goal: 'Understand photosynthesis', question: 'Why are leaves green?', priorKnowledge: 'I know plants need light.', learnerEvidence: ['How does chlorophyll capture light?'], language: 'English', dailyMinutes: 30, sources }, config, fetchImpl);
 
 		expect(lesson).toMatchObject({ title: 'Photosynthesis', activityMinutes: 20, citations: [{ sourceId: 'source-1' }] });
 		expect(requestBody.max_tokens).toBe(800);
@@ -30,6 +30,19 @@ describe('citation-bound learning lesson', () => {
 		expect(JSON.stringify(requestBody.messages)).toContain(sources[0].content);
 		expect(JSON.stringify(requestBody.messages)).toContain('Why are leaves green?');
 		expect(JSON.stringify(requestBody.messages)).toContain('I know plants need light.');
+		expect(JSON.stringify(requestBody.messages)).toContain('How does chlorophyll capture light?');
+	});
+
+	it('keeps the original goal when there is no learner evidence', async () => {
+		let requestBody: Record<string, unknown> = {};
+		await generateSessionLesson({ goal: 'Understand photosynthesis', question: 'Why are leaves green?', priorKnowledge: '', language: 'English', dailyMinutes: 30, sources }, config, vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+			requestBody = JSON.parse(String(init?.body));
+			return response(validDraft);
+		}));
+		const prompt = JSON.stringify(requestBody.messages);
+		expect(prompt).toContain('Understand photosynthesis');
+		expect(prompt).toContain('learnerEvidence');
+		expect(prompt).toContain('[]');
 	});
 
 	it.each([

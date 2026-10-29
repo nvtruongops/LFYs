@@ -1,7 +1,7 @@
-import { and, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { generateSessionLesson } from '../ai/lesson';
 import { db, pool } from '../db';
-import { learningConversation, learningJobOutbox, learningJourney, learningSession } from '../db/schema/personal-learning';
+import { learningChatTurn, learningConversation, learningJobOutbox, learningJourney, learningSession } from '../db/schema/personal-learning';
 import { env } from '../env';
 import { releaseUnusedSourcePages, reserveLearningSourceSearch } from './sources/quota';
 import { searchLearningSources } from './sources/jina';
@@ -42,7 +42,7 @@ async function processLockedLearningSession(sessionId: string, retryCount: numbe
 		}).from(learningSession)
 			.innerJoin(learningJourney, eq(learningSession.journeyId, learningJourney.id))
 			.where(eq(learningSession.id, sessionId)).for('update');
-		if (!row || row.sessionIndex !== 1) throw new Error('Learning session unavailable');
+		if (!row) throw new Error('Learning session unavailable');
 		if (row.sessionStatus === 'ready') return null;
 
 		await tx.update(learningSession).set({ status: 'generating', generationFailure: null }).where(eq(learningSession.id, sessionId));
@@ -52,7 +52,15 @@ async function processLockedLearningSession(sessionId: string, retryCount: numbe
 				.from(learningConversation).where(eq(learningConversation.id, row.conversationId))
 			: [];
 		if (!conversation) throw new Error('Learning session unavailable');
-		return { ...row, ...conversation };
+		const [priorSession] = row.sessionIndex > 1
+			? await tx.select({ id: learningSession.id }).from(learningSession)
+				.where(and(eq(learningSession.journeyId, row.journeyId), eq(learningSession.sessionIndex, row.sessionIndex - 1), eq(learningSession.status, 'ready')))
+			: [];
+		const [latestQuestion] = priorSession
+			? await tx.select({ question: learningChatTurn.question }).from(learningChatTurn)
+				.where(eq(learningChatTurn.sessionId, priorSession.id)).orderBy(desc(learningChatTurn.createdAt), desc(learningChatTurn.id)).limit(1)
+			: [];
+		return { ...row, ...conversation, learnerEvidence: latestQuestion ? [latestQuestion.question] : [] };
 	});
 	if (!context) return;
 
@@ -73,6 +81,7 @@ async function processLockedLearningSession(sessionId: string, retryCount: numbe
 			goal: context.goal,
 			question: context.question,
 			priorKnowledge: context.priorKnowledge,
+			learnerEvidence: context.learnerEvidence,
 			language: context.language,
 			dailyMinutes: context.dailyMinutes,
 			sources

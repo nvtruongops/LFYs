@@ -1,7 +1,7 @@
 import { fail, redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { answerLearningQuestion } from '../../../lib/server/ai/answer';
-import { acceptOffer, createAnsweredConversation, dismissOffer, getLearningStatus, retryLearningSession } from '../../../lib/server/personal-learning';
+import { acceptOffer, continueJourney, createAnsweredConversation, dismissOffer, extendJourney, getLearningStatus, LessonChatUnavailableError, replyToLessonChat, retryLearningSession } from '../../../lib/server/personal-learning';
 
 function field(form: FormData, name: string, maxLength: number) {
   const value = form.get(name);
@@ -67,6 +67,33 @@ export const actions = {
     }
   },
 
+  continue: async ({ request, locals }) => {
+    if (!locals.user) return fail(401, { error: 'Sign in to continue this journey.' });
+    const journeyId = field(await request.formData(), 'journeyId', 80);
+    if (!journeyId) return fail(400, { error: 'The continuation request is invalid.' });
+    try {
+      const result = await continueJourney({ ownerId: locals.user.id, journeyId });
+      if (result.status === 'goal_reached') return { goalReached: true };
+      return { continued: true, sessionId: result.sessionId, sessionIndex: result.sessionIndex };
+    } catch {
+      return fail(400, { error: 'This journey cannot be continued right now.' });
+    }
+  },
+
+  extend: async ({ request, locals }) => {
+    if (!locals.user) return fail(401, { error: 'Sign in to extend this journey.' });
+    const form = await request.formData();
+    const journeyId = field(form, 'journeyId', 80);
+    const newTarget = Number(field(form, 'newTarget', 2));
+    if (!journeyId) return fail(400, { error: 'The extension request is invalid.' });
+    try {
+      const studyDays = await extendJourney({ ownerId: locals.user.id, journeyId, newTarget });
+      return { extended: true, studyDays };
+    } catch {
+      return fail(400, { error: 'This journey cannot be extended to that target.' });
+    }
+  },
+
   retry: async ({ request, locals }) => {
     if (!locals.user) return fail(401, { error: 'Sign in to retry lesson generation.' });
     const form = await request.formData();
@@ -78,6 +105,21 @@ export const actions = {
       return { retried: true, sessionId: retried.sessionId };
     } catch {
       return fail(400, { error: 'This lesson cannot be retried. Check the URL and journey status.' });
+    }
+  },
+
+  chat: async ({ request, locals }) => {
+    if (!locals.user) return fail(401, { error: 'Sign in to ask about this lesson.' });
+    const form = await request.formData();
+    const sessionId = field(form, 'sessionId', 80);
+    const question = field(form, 'question', 2000);
+    if (!sessionId || !question) return fail(400, { error: 'Enter a question about the lesson.' });
+    try {
+      const answer = await replyToLessonChat({ ownerId: locals.user.id, sessionId, question });
+      return { chatted: true, sessionId, question, answer };
+    } catch (error) {
+      if (error instanceof LessonChatUnavailableError) return fail(400, { error: 'This lesson is unavailable.' });
+      return fail(502, { error: 'The lesson assistant could not answer right now. Please try again.' });
     }
   }
 };

@@ -8,7 +8,7 @@ No remote is authorized by default. Before any remote write, ask the user to con
 
 ## Product scope
 
-Product requirements, architecture decisions, and implementation plans are private local documents under `docs/superpowers/plans/`. The `/docs/` directory is Git-ignored; keep those plans separate from public-facing documentation and never force-add them.
+Product requirements, architecture decisions, implementation plans, and design specs are private local documents under `.superpowers/`. Keep them separate from public-facing documentation and never force-add them.
 
 Historical source checklists belonged to a different repository and have been consolidated into the requirements plan. In LFYs every implementation checkpoint starts pending; mark it complete only with evidence produced from this repo.
 

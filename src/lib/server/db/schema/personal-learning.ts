@@ -1,4 +1,4 @@
-import { check, integer, jsonb, pgTable, text, timestamp, unique } from 'drizzle-orm/pg-core';
+import { check, index, integer, jsonb, pgTable, text, timestamp, unique } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { user } from './auth';
 
@@ -76,6 +76,16 @@ export const learningSession = pgTable('learning_session', {
   check('learning_session_index_check', sql`${table.sessionIndex} >= 1`),
   check('learning_session_status_check', sql`${table.status} in ('queued', 'generating', 'ready', 'failed')`),
   check('learning_session_ready_check', sql`${table.status} <> 'ready' or (${table.title} is not null and ${table.lesson} is not null and ${table.activityMinutes} is not null and jsonb_array_length(${table.sourceManifest}) > 0)`)
+]);
+
+export const learningChatTurn = pgTable('learning_chat_turn', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  sessionId: text('session_id').notNull().references(() => learningSession.id, { onDelete: 'cascade' }),
+  question: text('question').notNull(),
+  answer: text('answer').notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow()
+}, (table) => [
+  index('learning_chat_turn_session_created_at_idx').on(table.sessionId, table.createdAt)
 ]);
 
 export const learningJobOutbox = pgTable('learning_job_outbox', {
